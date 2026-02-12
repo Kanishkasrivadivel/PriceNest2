@@ -1,13 +1,12 @@
-# scheduler_worker.py
 import time
 import smtplib
 from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
+import os
 
 from backend.backend_scrapper import compare_product
+from backend import storage
 
-from . import storage
-import os
 
 
 # =========================
