@@ -4,7 +4,8 @@ import smtplib
 from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from .backend_scrapper import compare_product
+from backend.backend_scrapper import compare_product
+
 from . import storage
 import os
 
