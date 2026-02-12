@@ -28,4 +28,4 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: |
-          python backend/price_checker.py
+          python backend/scheduler_worker.py
