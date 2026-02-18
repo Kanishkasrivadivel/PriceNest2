@@ -75,7 +75,7 @@ async function loadAlerts() {
 function createAlertCard(alert) {
   return `
     <div class="alert-card">
-      <h3>${alert.product}</h3>
+      <h3>${alert.product || 'Unknown Product'}</h3>
       <p>Target: ₹${alert.targetPrice}</p>
       <p>Status: ${alert.active ? 'Active' : 'Inactive'}</p>
 

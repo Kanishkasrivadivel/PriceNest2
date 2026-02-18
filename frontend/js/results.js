@@ -20,6 +20,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // Update page title and search input
     document.getElementById('searchQuery').textContent = `Results for "${currentQuery}"`;
     document.getElementById('searchInput').value = currentQuery;
+
+    // Auto-populate alert product name
+    const alertProductInput = document.getElementById('alertProduct');
+    if (alertProductInput) {
+        alertProductInput.value = currentQuery;
+    }
+
     // Update navigation
     updateNavigation();
 
@@ -126,6 +133,12 @@ function initializeTabs() {
                         });
                     }
                     if (accountSpan) accountSpan.textContent = user.email;
+                }
+
+                // Ensure product name is populated
+                const productInput = document.getElementById('alertProduct');
+                if (productInput && !productInput.value && currentQuery) {
+                    productInput.value = currentQuery;
                 }
             }
         });
@@ -234,12 +247,8 @@ function displayProducts(products) {
     `;
         return;
     }
-
     grid.innerHTML = products.map((product, index) => {
         const productId = product.id || `p-${index}`;
-        // backend_scrapper.py returns: title, source, link, price_numeric, price (string), image, store_logo
-        // We use price_numeric for calculations/sorting if needed, but display the pre-formatted 'price' or format price_numeric.
-        // Let's use price_numeric with toLocaleString to be safe and consistent with the template.
 
         return `
     <div class="product-card">
@@ -266,6 +275,14 @@ function displayProducts(products) {
     </div>
   `;
     }).join('');
+
+    // Update current best price if possible
+    if (products.length > 0 && document.getElementById('currentBestPrice')) {
+        const bestPrice = products[0].price_numeric;
+        if (bestPrice) {
+            document.getElementById('currentBestPrice').textContent = `₹${bestPrice.toLocaleString('en-IN')}`;
+        }
+    }
 }
 
 // =====================================================
@@ -536,9 +553,14 @@ function initializeAlertForm() {
             return;
         }
 
-        const product = document.getElementById('alertProduct').value;
+        const product = document.getElementById('alertProduct').value.trim();
         const targetPrice = parseFloat(document.getElementById('alertPrice').value);
         const email = document.getElementById('alertEmail').value;
+
+        if (!product) {
+            showNotification('Please enter a product name', 'error');
+            return;
+        }
 
         if (!targetPrice || targetPrice <= 0) {
             showNotification('Please enter a valid target price', 'error');
@@ -549,7 +571,7 @@ function initializeAlertForm() {
         const enteredEmail = document.getElementById('alertEmail').value;
         const finalEmail = enteredEmail || getUserData().email;
 
-        console.log(`[ALERT] Creating alert for: ${finalEmail}`);
+        console.log(`[ALERT] Creating alert for: ${product} (${finalEmail})`);
 
         const alert = {
             product: product,
@@ -562,11 +584,12 @@ function initializeAlertForm() {
             await addAlert(alert);
             showNotification('Alert created successfully!', 'success');
 
-            // Reset form
-            form.reset();
+            // Reset form but keep the product and email
+            document.getElementById('alertPrice').value = '';
+            // Ensure product name stays populated for the next alert if they want to set another price
             document.getElementById('alertProduct').value = currentQuery;
         } catch (err) {
-            showNotification('Failed to create alert', 'error');
+            showNotification('Failed to create alert: ' + err.message, 'error');
             console.error(err);
         }
     });
