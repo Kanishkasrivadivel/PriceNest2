@@ -213,54 +213,96 @@ function showNotification(message, type = 'info', duration = 4000) {
     }, duration);
 }
 
+
 // =====================================================
-// LOCAL STORAGE HELPERS
+// ALERT HELPERS (BACKEND INTEGRATED)
 // =====================================================
 
 /**
- * Get alerts from localStorage
- * @returns {Array} - Array of alert objects
+ * Get alerts from backend
+ * @returns {Promise<Array>} - Array of alert objects
  */
-function getAlerts() {
-    const alerts = localStorage.getItem('priceAlerts');
-    if (!alerts) return [];
+async function getAlerts() {
+    if (!isLoggedIn()) return [];
 
     try {
-        return JSON.parse(alerts);
+        const alerts = await apiGet('/alerts');
+        // Transform backend format to frontend format if needed, but they are quite similar
+        // Backend: { id, email, query, target_price, is_active }
+        // Frontend expects: { id, product, targetPrice, active, createdAt }
+        // We need to map them.
+
+        return alerts.map(a => ({
+            id: a.id,
+            product: a.query,
+            targetPrice: a.target_price,
+            email: a.email,
+            active: a.is_active,
+            createdAt: new Date().toISOString() // Backend doesn't return createdAt for alerts yet, so we mock or need to add it to DB
+        }));
     } catch (e) {
+        console.error('Failed to fetch alerts:', e);
         return [];
     }
 }
 
 /**
- * Save alerts to localStorage
- * @param {Array} alerts - Array of alert objects
+ * Add new alert (Backend)
+ * @param {Object} alert - Alert object { product, targetPrice, email }
  */
-function saveAlerts(alerts) {
-    localStorage.setItem('priceAlerts', JSON.stringify(alerts));
+async function addAlert(alert) {
+    if (!isLoggedIn()) throw new Error("Must be logged in");
+
+    const payload = {
+        email: alert.email,
+        query: alert.product,
+        target_price: alert.targetPrice,
+        notify_method: "email"
+    };
+
+    const response = await apiPost('/alerts', payload);
+    return response.alert;
 }
 
 /**
- * Add new alert
- * @param {Object} alert - Alert object
+ * Delete alert by ID (Backend)
+ * @param {string|number} alertId - Alert ID to delete
  */
-function addAlert(alert) {
-    const alerts = getAlerts();
-    alert.id = Date.now().toString();
-    alert.createdAt = new Date().toISOString();
-    alerts.push(alert);
-    saveAlerts(alerts);
-    return alert;
+async function deleteAlert(alertId) {
+    if (!isLoggedIn()) return false;
+
+    try {
+        await fetch(`${API_BASE_URL}/alerts/${alertId}`, {
+            method: 'DELETE'
+        });
+        return true;
+    } catch (e) {
+        console.error('Failed to delete alert:', e);
+        return false;
+    }
 }
 
 /**
- * Delete alert by ID
- * @param {string} alertId - Alert ID to delete
+ * Update alert status (Backend)
+ * @param {string|number} alertId 
+ * @param {boolean} isActive 
  */
-function deleteAlert(alertId) {
-    const alerts = getAlerts();
-    const filtered = alerts.filter(a => a.id !== alertId);
-    saveAlerts(filtered);
+async function updateAlertStatus(alertId, isActive) {
+    if (!isLoggedIn()) return false;
+
+    try {
+        const url = `${API_BASE_URL}/alerts/${alertId}/status?is_active=${isActive}`;
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!res.ok) throw new Error('Failed to update status');
+        return true;
+    } catch (e) {
+        console.error('Failed to update alert status:', e);
+        return false;
+    }
 }
 
 // =====================================================

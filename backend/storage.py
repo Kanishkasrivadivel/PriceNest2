@@ -26,22 +26,26 @@ def upsert_product(query, results):
         ).first()
 
         if existing:
+            # Update price and timestamp
+            existing.price = r["price_numeric"]
+            existing.created_at = datetime.utcnow()
+            db.add(existing)
             product_objects.append(existing)
-            continue
+        else:
+            product = Product(
+                query=query,
+                title=r["title"],
+                source=r["source"],
+                link=r["link"],
+                image=r.get("image"),
+                store_logo=r.get("store_logo"),
+                price=r["price_numeric"],
+                created_at=datetime.utcnow()
+            )
+            db.add(product)
+            product_objects.append(product)
 
-        product = Product(
-            query=query,
-            title=r["title"],
-            source=r["source"],
-            link=r["link"],
-            image=r.get("image"),
-            store_logo=r.get("store_logo"),
-            price=r["price_numeric"],
-            created_at=datetime.utcnow()
-        )
-        db.add(product)
-        product_objects.append(product)
-
+        # Always add to history when valid
         history = PriceHistory(
             query=query,
             source=r["source"],
@@ -67,6 +71,29 @@ def upsert_product(query, results):
             "price_numeric": p.price,
             "price": f"₹{int(p.price):,}" if p.price else "₹0"
         } for p in product_objects
+    ]
+    
+    db.close()
+    return output
+
+
+def get_products(query):
+    db: Session = SessionLocal()
+    query = normalize_query(query)
+    products = db.query(Product).filter(Product.query == query).all()
+    
+    output = [
+        {
+            "id": p.id,
+            "title": p.title,
+            "source": p.source,
+            "link": p.link,
+            "image": p.image,
+            "store_logo": p.store_logo,
+            "price_numeric": p.price,
+            "price": f"₹{int(p.price):,}" if p.price else "₹0",
+            "created_at": p.created_at
+        } for p in products
     ]
     
     db.close()

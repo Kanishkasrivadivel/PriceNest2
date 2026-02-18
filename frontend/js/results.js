@@ -137,7 +137,16 @@ document.addEventListener('keypress', function (e) {
 
 async function loadProducts() {
     const grid = document.getElementById('productsGrid');
-    grid.innerHTML = '<div class="spinner"></div>';
+    // Skeleton Loader
+    grid.innerHTML = Array(8).fill(0).map(() => `
+        <div class="product-card skeleton-card">
+            <div class="skeleton-image skeleton"></div>
+            <div class="skeleton-line skeleton short"></div>
+            <div class="skeleton-line skeleton"></div>
+            <div class="skeleton-line skeleton price"></div>
+            <div class="skeleton-btn skeleton"></div>
+        </div>
+    `).join('');
 
     try {
         console.log(`Fetching results for: ${currentQuery}`);
@@ -457,7 +466,7 @@ async function loadAnalytics() {
 function initializeAlertForm() {
     const form = document.getElementById('alertForm');
 
-    form.addEventListener('submit', function (e) {
+    form.addEventListener('submit', async function (e) {
         e.preventDefault();
 
         // Check if user is logged in
@@ -486,11 +495,16 @@ function initializeAlertForm() {
             active: true
         };
 
-        addAlert(alert);
-        showNotification('Alert created successfully!', 'success');
+        try {
+            await addAlert(alert);
+            showNotification('Alert created successfully!', 'success');
 
-        // Reset form
-        form.reset();
-        document.getElementById('alertProduct').value = currentQuery;
+            // Reset form
+            form.reset();
+            document.getElementById('alertProduct').value = currentQuery;
+        } catch (err) {
+            showNotification('Failed to create alert', 'error');
+            console.error(err);
+        }
     });
 }

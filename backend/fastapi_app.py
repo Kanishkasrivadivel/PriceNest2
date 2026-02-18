@@ -1,9 +1,10 @@
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from datetime import datetime, timedelta
 
 from .backend_scrapper import compare_product
 from .analytics_engine import analyze_price
@@ -23,20 +24,16 @@ logger = logging.getLogger("pricenest")
 # -----------------------
 app = FastAPI(
     title="PriceNest API",
-    description="Smart Price Comparison & Analytics API",
     version="1.0.0"
 )
 
 
 # -----------------------
-# CORS CONFIG
+# CORS
 # -----------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,7 +41,7 @@ app.add_middleware(
 
 
 # -----------------------
-# Data Models
+# Models
 # -----------------------
 class CompareResponse(BaseModel):
     query: str
@@ -56,6 +53,10 @@ class AlertRequest(BaseModel):
     query: str
     target_price: int
     notify_method: Optional[str] = "email"
+
+
+class AlertStatusUpdate(BaseModel):
+    is_active: bool
 
 
 class UserSignupRequest(BaseModel):
@@ -82,13 +83,23 @@ EXECUTOR = ThreadPoolExecutor(max_workers=4)
 SCRAPER_TIMEOUT = 12
 
 
-# -----------------------------------------------------------
-# /compare
-# -----------------------------------------------------------
+# ===========================================================
+# PRODUCT COMPARE
+# ===========================================================
 @app.get("/compare", response_model=CompareResponse)
 def compare(q: str):
     q = q.strip().lower()
     logger.info(f"[COMPARE] {q}")
+
+    try:
+        cached = storage.get_products(q)
+        if cached:
+            last_update = cached[0].get("created_at")
+            if last_update and (datetime.utcnow() - last_update) < timedelta(hours=24):
+                logger.info(f"[CACHE HIT] {q}")
+                return {"query": q, "results": cached}
+    except Exception as e:
+        logger.error(f"Cache check failed: {e}")
 
     future = EXECUTOR.submit(compare_product, q)
 
@@ -97,61 +108,93 @@ def compare(q: str):
     except FuturesTimeout:
         raise HTTPException(status_code=504, detail="Scraper timed out")
     except Exception as e:
-        logger.exception("Scraper error")
         raise HTTPException(status_code=500, detail=str(e))
 
     try:
         results = storage.upsert_product(q, data.get("results", []))
         return {"query": q, "results": results}
     except Exception:
-        logger.exception("Failed to save product data")
         return data
 
 
-# -----------------------------------------------------------
-# /alerts
-# -----------------------------------------------------------
+# ===========================================================
+# ALERTS (FINAL FIX)
+# ===========================================================
+
 @app.post("/alerts")
 def create_alert(req: AlertRequest):
-    query = req.query.strip().lower()
-    logger.info(f"[ALERT] {query}")
+    try:
+        query = req.query.strip().lower()
+        logger.info(f"[ALERT CREATE] {query} for {req.email}")
 
-    if not storage.get_product(query):
-        fresh = compare_product(query)
-        storage.upsert_product(query, fresh.get("results", []))
+        # Ensure product exists
+        if not storage.get_product(query):
+            fresh = compare_product(query)
+            storage.upsert_product(query, fresh.get("results", []))
 
-    alert = storage.add_alert(
-        email=req.email,
-        query=query,
-        target_price=req.target_price,
-        notify_method=req.notify_method
-    )
+        alert = storage.add_alert(
+            email=req.email,
+            query=query,
+            target_price=req.target_price,
+            notify_method=req.notify_method
+        )
 
-    return {"status": "ok", "alert": alert}
+        return {"status": "ok", "alert": alert}
+
+    except Exception as e:
+        logger.error(f"Create alert failed: {e}")
+        raise HTTPException(status_code=503, detail="Database connection issue")
 
 
+# ✅ FIXED: email optional + safe + always returns list
 @app.get("/alerts")
-def get_alerts():
-    return storage.list_alerts()
+def get_alerts(email: Optional[str] = Query(None)):
+    """
+    Usage:
+    /alerts?email=user@gmail.com
+    """
+
+    try:
+        if email:
+            logger.info(f"[ALERT LIST] {email}")
+            alerts = storage.list_alerts(email)
+        else:
+            # fallback (for debugging)
+            logger.info("[ALERT LIST] all alerts")
+            alerts = storage.list_all_alerts()
+
+        # Ensure list format
+        if not alerts:
+            return []
+
+        return alerts
+
+    except Exception as e:
+        logger.error(f"Fetch alerts failed: {e}")
+        raise HTTPException(status_code=503, detail="Database error")
 
 
-# -----------------------------------------------------------
-# /history (debug)
-# -----------------------------------------------------------
-@app.get("/history")
-def get_history(q: str):
-    q = q.strip().lower()
-    history = storage.get_price_history(q)
-
-    if not history:
-        raise HTTPException(status_code=404, detail="No price history available")
-
-    return {"query": q, "history": history}
+@app.put("/alerts/{alert_id}")
+def update_alert_status(alert_id: int, req: AlertStatusUpdate):
+    logger.info(f"[ALERT UPDATE] {alert_id} -> {req.is_active}")
+    updated = storage.update_alert_status(alert_id, req.is_active)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "ok", "alert": updated}
 
 
-# -----------------------------------------------------------
-# /analytics
-# -----------------------------------------------------------
+@app.delete("/alerts/{alert_id}")
+def delete_alert(alert_id: int):
+    logger.info(f"[ALERT DELETE] {alert_id}")
+    success = storage.delete_alert(alert_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "ok"}
+
+
+# ===========================================================
+# ANALYTICS
+# ===========================================================
 @app.get("/analytics")
 def analytics(q: str):
     q = q.strip().lower()
@@ -165,45 +208,34 @@ def analytics(q: str):
     return result
 
 
-# -----------------------------------------------------------
-# Auth Endpoints
-# -----------------------------------------------------------
+# ===========================================================
+# AUTH
+# ===========================================================
 @app.post("/auth/signup")
 def signup(req: UserSignupRequest):
-    logger.info(f"[SIGNUP] {req.email}")
-    
-    # Check if user already exists
     existing_user = storage.get_user_by_email(req.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
-    # Create user
+
     hashed_password = get_password_hash(req.password)
+
     user = storage.create_user(
         first_name=req.first_name,
         last_name=req.last_name,
         email=req.email,
         hashed_password=hashed_password
     )
-    
-    return {
-        "status": "ok",
-        "user": {
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email
-        }
-    }
+
+    return {"status": "ok", "user": user.email}
 
 
 @app.post("/auth/login")
 def login(req: UserLoginRequest):
-    logger.info(f"[LOGIN] {req.email}")
-    
     user = storage.get_user_by_email(req.email)
+
     if not user or not verify_password(req.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     return {
         "status": "ok",
         "user": {
@@ -213,29 +245,27 @@ def login(req: UserLoginRequest):
         }
     }
 
-# -----------------------------------------------------------
-# Wishlist Endpoints
-# -----------------------------------------------------------
+
+# ===========================================================
+# WISHLIST
+# ===========================================================
 @app.post("/wishlist")
 def add_to_wishlist(req: WishlistRequest):
-    logger.info(f"[WISHLIST ADD] {req.email} -> {req.product_id}")
     item = storage.add_to_wishlist(req.email, req.product_id)
     if not item:
         raise HTTPException(status_code=404, detail="User not found")
-    return {"status": "ok", "message": "Product added to wishlist"}
+    return {"status": "ok"}
 
 
 @app.delete("/wishlist")
 def remove_from_wishlist(req: WishlistRequest):
-    logger.info(f"[WISHLIST REMOVE] {req.email} -> {req.product_id}")
     success = storage.remove_from_wishlist(req.email, req.product_id)
     if not success:
-        raise HTTPException(status_code=404, detail="User or wishlist item not found")
-    return {"status": "ok", "message": "Product removed from wishlist"}
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"status": "ok"}
 
 
 @app.get("/wishlist")
 def get_wishlist(email: str):
-    logger.info(f"[WISHLIST GET] {email}")
     items = storage.get_wishlist(email)
     return {"status": "ok", "wishlist": items}

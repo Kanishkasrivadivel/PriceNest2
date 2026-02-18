@@ -415,3 +415,57 @@
 .analytics-table tr:last-child td {
     border-bottom: none;
 }
+
+/* Skeleton Loader */
+.skeleton {
+    background: #2d3748; /* Darker base for dark mode compatibility */
+    background: linear-gradient(110deg, #2d3748 8%, #4a5568 18%, #2d3748 33%);
+    border-radius: 5px;
+    background-size: 200% 100%;
+    animation: 1.5s shine linear infinite;
+}
+
+@keyframes shine {
+    to {
+        background-position-x: -200%;
+    }
+}
+
+.skeleton-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+}
+
+.skeleton-image {
+    width: 100%;
+    height: 200px;
+    margin-bottom: var(--spacing-md);
+    border-radius: var(--radius-md);
+}
+
+.skeleton-line {
+    height: 16px;
+    margin-bottom: var(--spacing-sm);
+    border-radius: 4px;
+}
+
+.skeleton-line.short {
+    width: 60%;
+}
+
+.skeleton-line.price {
+    height: 28px;
+    width: 40%;
+    margin-bottom: var(--spacing-md);
+}
+
+.skeleton-btn {
+    height: 40px;
+    width: 100%;
+    border-radius: 6px;
+    margin-top: auto;
+}
