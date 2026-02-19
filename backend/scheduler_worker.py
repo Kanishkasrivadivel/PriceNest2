@@ -68,7 +68,7 @@ def check_alerts_job():
     print("[Scheduler] Checking alerts...")
     print("==============================\n")
 
-    alerts = storage.list_alerts()
+    alerts = storage.list_all_alerts()
 
     if not alerts:
         print("No alerts found.")
