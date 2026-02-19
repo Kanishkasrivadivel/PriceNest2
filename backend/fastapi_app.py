@@ -248,7 +248,14 @@ def signup(req: UserSignupRequest):
         hashed_password=hashed_password
     )
 
-    return {"status": "ok", "user": user.email}
+    return {
+        "status": "ok",
+        "user": {
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email
+        }
+    }
 
 
 @app.post("/auth/login")
